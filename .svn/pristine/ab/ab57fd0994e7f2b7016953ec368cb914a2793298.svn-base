@@ -1,0 +1,373 @@
+package cn.jj.service.impl;
+
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.util.Date;
+
+import org.apache.commons.lang3.StringUtils;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import cn.jj.controller.RouteStart;
+import cn.jj.controller.ScenicStart;
+import cn.jj.entity.Scenic;
+import cn.jj.entity.data.Sceinfo;
+import cn.jj.service.IScenicParse;
+
+
+public class ScenicParse implements IScenicParse {
+
+	@Override
+	public void ticketParse(Scenic ticket) {
+		// TODO Auto-generated method stub
+		String url = ticket.getUrl();
+		//判断url是驴妈妈网站
+		if (url.startsWith("http://s.lvmama.com/ticket/")) {
+			//解析驴妈妈门票
+			lvmamaParse(ticket);
+		}
+		//判断url是携程网站
+		if (url.startsWith("http://piao.ctrip.com/dest/")) {
+			//解析携程门票
+			xiechengParse(ticket);
+		}
+		//判断url是途牛网站
+		if(url.startsWith("http://www.tuniu.com")){
+			//解析途牛门票
+			tuniuParse(ticket);
+		}
+		//判断url是同程网站
+		if(url.startsWith("https://www.ly.com")){
+			//解析同程门票
+			tongChengParse(ticket);
+		}
+		//判断url是去哪儿网站
+		if(url.startsWith("http://piao.qunar.com")){
+			//解析去哪儿门票
+			qunaerParse(ticket);
+		}
+
+	}
+
+	/**
+	 * @Description 解析去哪儿景点门票
+	 * @author 汤玉林
+	 * @date 2017年12月26日 下午5:53:03
+	 * @action qunaerParse
+	 * @param ticket
+	 */
+	private void qunaerParse(Scenic ticket) {
+		String url = ticket.getUrl();
+		String cityName=url.substring(url.indexOf("keyword")+8, url.indexOf("region")-1);
+		Document doc=Jsoup.parse(ticket.getContent());
+		//首页获取总页数
+		if(!url.contains("page")){
+			// 获取最大的页数
+			Elements hrefEle = doc.select("div#pager-container>div.pager>a");
+			int total = 0;
+			if (hrefEle.isEmpty()) {
+				total = 1;
+			} else {
+				String str = hrefEle.get(hrefEle.size() - 2).text();
+				total = Integer.valueOf(str);
+			}
+			for (int i = 1; i <= total; i++) {
+				String pageUrl = "http://piao.qunar.com/ticket/list.htm?keyword="
+						+ cityName + "&region=&from=mps_search_suggest&page=" + i;
+				ScenicStart.jedis.addStr(ScenicStart.KEY_URL, pageUrl);
+			}
+		}else{
+			//获取页面列表数据详情
+			Elements scenicEle = doc.select("div.sight_item");
+			if (scenicEle.isEmpty()) {
+				System.out.println("详情信息解析失败");
+				ScenicStart.jedis.addStr(ScenicStart.KEY_URL, url);
+			}else{
+				for (Element element : scenicEle) {
+					try {
+						Elements urlEle = element.select(
+								"div.sight_item_detail.clrfix>div.sight_item_about>h3.sight_item_caption>a.name");
+						Sceinfo sceInfo = new Sceinfo();
+						String scenicUrl = "http://piao.qunar.com" + urlEle.attr("href").substring(0, urlEle.attr("href").indexOf("?"));
+						System.err.println(scenicUrl);
+						// 景点名字
+						String name = urlEle.text();
+						System.out.println(name);
+						sceInfo.setName(name);
+						// 景点地址
+						Elements addressEle = element.select(
+								"div.sight_item_detail.clrfix>div.sight_item_about>div.sight_item_info>p.address.color999>span");
+						if(!addressEle.isEmpty()){
+							String address = addressEle.attr("title");					
+							sceInfo.setAddress(address);
+						}								
+						// 经纬度
+						String latlng = element.attr("data-point");
+						if (latlng != null && !"".equals(latlng)) {
+							String[] latlngArr = latlng.split(",");
+							String longitude = latlngArr[1]; // 纬度
+							String latitude = latlngArr[0]; // 经度
+							sceInfo.setLongitude(longitude);
+							sceInfo.setLatitude(latitude);
+						}
+						// 景点星级
+						Elements starLevelEle = element.select(
+								"div.sight_item_detail.clrfix>div.sight_item_about>div.sight_item_info>div.clrfix>span.level");
+						String starLevel = starLevelEle.isEmpty() ? "" : starLevelEle.text();
+						sceInfo.setStarlevel(starLevel);
+						// 景点参考价格
+						Elements referPriceEle = element.select(
+								"div.sight_item_detail.clrfix>div.sight_item_pop>table>tbody>tr:nth-child(1)>td>span.sight_item_price>em");
+						String referPrice = referPriceEle.isEmpty() ? "" : referPriceEle.text();
+						sceInfo.setReferprice(referPrice);
+						System.out.println(referPrice);
+						Scenic scenic2 = new Scenic();
+						scenic2.setPageUrl(url);
+						scenic2.setUrl(scenicUrl);
+						scenic2.setCityName(cityName);
+						scenic2.setSceinfo(sceInfo);
+
+						ScenicStart.jedis.add(ScenicStart.KEY_SCENIC, scenic2);
+
+					}catch(Exception e){
+						ScenicStart.jedis.addStr(RouteStart.KEY_URL, url);
+					}	
+				}
+			}
+		}
+	}
+
+	/**
+	 * @Description 解析同程景点门票
+	 * @author 汤玉林
+	 * @date 2017年12月26日 下午12:00:50
+	 * @action tongChengParse
+	 * @param ticket
+	 */
+	private void tongChengParse(Scenic scenic) {
+		String url = scenic.getUrl();
+		Document doc=Jsoup.parse(scenic.getContent());
+		//解析门票主页url
+		if(url.startsWith("https://www.ly.com/scenery/scenerysearchlist")){
+			//获取上海或者海南
+			String keyword=url.substring(url.indexOf("_")+5, url.lastIndexOf(".")-14);
+			//获得景点总数
+			String total=doc.select("div.sel_num>p>span.orange").text();
+			int scenicTotal=0;
+			if(StringUtils.isNotBlank(total)){
+				scenicTotal=Integer.valueOf(total);
+			}
+			int pageTotal=scenicTotal%10==0?scenicTotal/10:scenicTotal/10+1;
+			for (int i = 1; i <= pageTotal; i++) {
+				String scenicUrl="https://www.ly.com/scenery/NewSearchList.aspx?&action=getlist&page="+i+"&kw="+keyword;
+				ScenicStart.jedis.addStr(ScenicStart.KEY_URL, scenicUrl);
+			}
+		}
+		//解析分页url
+		if(url.startsWith("https://www.ly.com/scenery/NewSearchList")){
+			String keyword=url.substring(url.indexOf("kw")+3, url.length());
+			Elements urlELe=doc.select("div.info_c>dl>dt>a.sce_name");
+			if(!urlELe.isEmpty()){
+				System.out.println("该页景点数："+urlELe.size());
+				for (Element element : urlELe) {
+					Scenic scenic2 = new Scenic();
+					String href = "https://www.ly.com"+element.attr("href");
+					scenic2.setUrl(href);
+					scenic2.setPageUrl(url);
+					scenic2.setCityName(keyword);
+					System.out.println("景点url："+href);
+					ScenicStart.jedis.add(ScenicStart.KEY_SCENIC, scenic2);
+				}
+
+			}
+		}
+	}
+	/**
+	 * 
+	 * @Description 解析lvmama景点门票
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:18:34
+	 * @action lvmamaParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void lvmamaParse(Scenic scenic) {
+		//二级分页url
+		String pageUrl=scenic.getUrl();
+		String cityName=pageUrl.substring(pageUrl.indexOf("keyword=")+8,pageUrl.lastIndexOf("&"));
+		try {
+			cityName = URLDecoder.decode(cityName, "UTF-8");
+		} catch (UnsupportedEncodingException e) {
+			e.printStackTrace();
+		}
+		//获取document
+		String content = scenic.getContent();
+		Document doc = Jsoup.parse(content);
+		if(pageUrl.contains("#list")){
+			//获取下一页按钮链接url,即分页url
+			Elements nextPageEle = doc.select("div.pagebox>a");
+			String text = nextPageEle.get(nextPageEle.size()-2).text();
+			if(StringUtils.isNotBlank(text)){
+				Integer pageNum = Integer.parseInt(text);
+				for(int i=1;i<=pageNum;i++){
+					String replaceUrl = pageUrl.replace("P1", "P"+i).replace("#list", "");
+					System.out.println("分页链接"+replaceUrl);
+					ScenicStart.jedis.addStr(ScenicStart.KEY_URL,replaceUrl);
+				}
+				
+			}else{
+				ScenicStart.jedis.addStr(RouteStart.KEY_URL, pageUrl);
+			}
+		}else{
+			//分页链接
+			//获取门票的部分信息
+			try {
+				// 取到产品模块element对象集合
+				Elements products = doc.select("div.product-regular.clearfix");
+				for (Element element : products) {
+					// 名称
+					Elements elements = element.select(
+							"div.product-section>h3.product-ticket-title>a.name");
+					if (!elements.isEmpty()) {
+						String name = elements.first().text();
+						// a链接
+						String href = elements.first().attr("href");
+						scenic.setUrl(href);
+						scenic.setPageUrl(pageUrl);
+						scenic.setCityName(cityName);
+						//设置景点基础信息对象
+						Sceinfo sceInfo=new Sceinfo();
+						sceInfo.setCreatedate(new Date());
+						sceInfo.setName(name);
+						// 左侧模块对象集合
+						Elements informationElements = element.select("div.product-section>dl.product-details.clearfix");
+						if (!informationElements.isEmpty()) {
+
+							for (Element infoLeft : informationElements) {
+								String leftKey = infoLeft.select("dt").text();// dt标签中的值
+								String leftValue = infoLeft.select("dd").text();// dd标签中的值
+								switch (leftKey) {
+								case "景点地址":
+									// 景点地址
+									String address = leftValue;
+									sceInfo.setAddress(address);
+									break;
+								case "营业时间":
+									// 开放时间
+									String openTime = leftValue;
+									sceInfo.setOpentime(openTime);
+									break;
+								case "主题":
+									// 景点类型
+									String type = leftValue;
+									sceInfo.setType(type);
+									break;
+								case "景点特色":
+									// 景点介绍
+									String introduction = leftValue;
+									sceInfo.setIntroduction(introduction);
+									break;
+								default:
+									break;
+								}
+							}
+						}
+						scenic.setSceinfo(sceInfo);
+						System.out.println("放入种子链接"+scenic.getUrl());
+						ScenicStart.jedis.add(ScenicStart.KEY_SCENIC, scenic);
+					}
+				}
+			} catch (Exception e) {
+				ScenicStart.jedis.addStr(RouteStart.KEY_URL, pageUrl);
+			}
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 解析携程景点门票
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:18:42
+	 * @action xiechengParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void xiechengParse(Scenic ticket) {
+		String content = ticket.getContent();
+		
+		String pageUrl=ticket.getUrl();
+		String cityName="";
+		
+		if(pageUrl.contains("s-tickets")){
+			if(pageUrl.contains("u-_c9_cf_ba_a3")){
+				cityName="上海";
+			}else if(pageUrl.contains("u-_ba_a3_c4_cf")){
+				cityName="海南";
+			}
+		}
+		Document doc = Jsoup.parse(content);
+		Elements nextPageEle = doc.select("div.pkg_page.basefix>a.down");
+		for (Element element : nextPageEle) {
+			String href = element.attr("href");
+			if("".equals(href)){
+				ScenicStart.jedis.addStr(ScenicStart.KEY_URL, pageUrl);
+			}else if(href.equals("###")) {
+				System.out.println("没有下一页链接了");
+			}else {
+				String nextHref = "http://piao.ctrip.com" + href;
+				ScenicStart.jedis.addStr(ScenicStart.KEY_URL, nextHref);
+			}
+		}
+		Elements select = doc.select("div#searchResultContainer>div>div.search_ticket_caption");
+		System.err.println("分页url："+pageUrl+";当前页的门票链接数："+select.size());
+		
+		//解析失败，放回队列
+		if(select.size()==0){
+			ScenicStart.jedis.addStr(ScenicStart.KEY_URL, pageUrl);
+		}else{
+			for (Element element : select) {
+				Scenic scenic2=new Scenic();
+				String href ="http://piao.ctrip.com" + element.select("a.search_ticket_img").attr("href");
+				System.out.println(href+"------携程门票链接");
+				scenic2.setPageUrl(pageUrl);
+				scenic2.setUrl(href);
+				scenic2.setCityName(cityName);
+				ScenicStart.jedis.add(ScenicStart.KEY_SCENIC, scenic2);
+			}
+		}
+	}
+	/**
+	 * 
+	 * @Description 解析携程景点门票
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:20:15
+	 * @action tuniuParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void tuniuParse(Scenic ticket){
+		String content = ticket.getContent();
+		String pageUrl=ticket.getUrl();
+		Document doc = Jsoup.parse(content);
+		Elements nextPageEle = doc.select("div.page-bottom>a.page-next");
+		for (Element element : nextPageEle) {
+			String nextHref = element.attr("href");
+			ScenicStart.jedis.addStr(ScenicStart.KEY_URL, nextHref);
+		}
+		Elements select = doc.select("dl.detail>dt>p.title.ticket>a");
+		for (Element element : select) {
+			Scenic scenic2=new Scenic();
+
+			String href = element.attr("href");
+			System.out.println(href+"-----途牛门票链接");
+			scenic2.setPageUrl(pageUrl);
+			scenic2.setUrl(href);
+			ScenicStart.jedis.add(ScenicStart.KEY_SCENIC, scenic2);
+
+		}
+	}
+
+}

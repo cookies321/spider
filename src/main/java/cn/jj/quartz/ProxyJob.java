@@ -1,0 +1,53 @@
+package cn.jj.quartz;
+
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+
+import cn.jj.Config;
+import cn.jj.utils.PageDownLoadUtil;
+import cn.jj.utils.RedisProxyUtil;
+import cn.jj.utils.RedisUtil;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+
+/**
+ * @Description: 定时获取代理ip
+ * @author 徐仁杰
+ * @date 2017年11月30日 下午2:28:11
+ */
+public class ProxyJob implements Job {
+
+	// redis中用于存储代理ip的队列
+	public static final String PROXY_IP_PORT = "proxy.ip.port";
+
+	/**
+	 * @Description: 获取米扑网100条ip定时任务
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 下午3:05:02
+	 */
+	@Override
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		try {
+			String url = Config.PROXY_IP_ORDER_NUMBER;
+			String data = PageDownLoadUtil.httpClientDefultGet(url);
+			String[] split = data.split("\n");
+			System.err.println(split.length);
+			if (split.length == 2) {
+				Jedis jedis = RedisProxyUtil.getProxyJedisPool();
+				String fristIp = split[0].trim();
+				String secondIp = split[1].trim();
+				jedis.setex(Config.PROXY_IP_REDIS_KEY + fristIp, 290, "1");
+				jedis.setex(Config.PROXY_IP_REDIS_KEY + secondIp, 290, "1");
+				jedis.close();
+			} else {
+				System.out.println(data);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+	}
+
+}

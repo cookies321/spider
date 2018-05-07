@@ -1,0 +1,333 @@
+package cn.jj.flight.controller;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.DateUtils;
+
+import cn.jj.flight.entity.Flight;
+import cn.jj.flight.service.IFlightParse;
+import cn.jj.flight.service.impl.FlightDownLoad;
+import cn.jj.flight.service.impl.FlightParse;
+import cn.jj.service.IDownLoadService;
+import cn.jj.service.impl.QueueRepositoryService;
+import cn.jj.utils.RedisUtil;
+
+public class FlightStart {
+	private IDownLoadService download;
+	private IFlightParse flightParse;
+	private QueueRepositoryService queue = new QueueRepositoryService();
+
+	// redis工具类
+	public static RedisUtil jedis = RedisUtil.getInstance();
+	// redis中存放分页链接的key
+	public static final String KEY_URL = "queueUrl";
+	// redis中存放分页链接的key
+	public static final String KEY_ROUTE = "flight";
+
+	public IDownLoadService getDownload() {
+		return download;
+	}
+
+	public void setDownload(IDownLoadService download) {
+		this.download = download;
+	}
+
+	public IFlightParse getFlightParse() {
+		return flightParse;
+	}
+
+	public void setFlightParse(IFlightParse flightParse) {
+		this.flightParse = flightParse;
+	}
+
+	/**
+	 * 根据城市的名称获得城市的编码
+	 * 
+	 * @param city
+	 * @return
+	 */
+	public static String cityCodeManager(String city) {
+		String cityCode = "";
+		if ("上海".equals(city)) {
+			cityCode = "SHA";
+		} else if ("海口".equals(city)) {
+			cityCode = "HAK";
+		} else if ("三亚".equals(city)) {
+			cityCode = "SYX";
+		} else if ("琼海".equals(city)) {
+			cityCode = "";
+		}
+		return cityCode;
+	}
+
+	/**
+	 * 根据参数，拼接驴妈妈url
+	 * 
+	 * @param beginCity
+	 *            出发城市
+	 * @param endCity
+	 *            目的城市
+	 * @param n
+	 *            当前日期往后多少天开始爬
+	 * @param day
+	 *            需要爬的天数
+	 */
+	public static List<String> getLvmamaUrlList(String beginCity, String endCity, Integer n, Integer day) {
+		// 定义保存url的集合对象
+		LinkedList<String> urlList = new LinkedList<>();
+		// 获得出发城市的code
+		String beginCityCode = cityCodeManager(beginCity);
+		// 获得目的城市的code
+		String endCityCode = cityCodeManager(endCity);
+
+		// 确定日期
+		Date date = new Date();
+		for (int i = 0; i < day; i++) {
+			Date dateData = DateUtils.addDays(date, n + i);
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+			String trueDate = sdf.format(dateData);
+			System.out.println(trueDate);
+			// 定义url
+			String url = "http://flight.lvmama.com/booking/" + beginCityCode + "-" + endCityCode + ".html?date1="
+					+ trueDate + "&routeType=OW&cancelSelected=false";
+			// 添加到集合中
+			urlList.add(url);
+		}
+
+		return urlList;
+	}
+
+	/**
+	 * 
+	 * @Description 根据参数得到途牛的urllist
+	 * @author 谢大磊
+	 * @date 2017年12月27日 上午11:03:55
+	 * @action getTuniuUrlList
+	 * @return List<String>
+	 */
+	public static List<String> getTuniuUrlList(String beginCity, String endCity, Integer n, Integer day) {
+		// 定义保存url的集合对象
+		LinkedList<String> urlList = new LinkedList<>();
+		// 获得出发城市的code
+		String beginCityCode = cityCodeManager(beginCity);
+		// 获得目的城市的code
+		String endCityCode = cityCodeManager(endCity);
+
+		// 确定日期
+		Date date = new Date();
+		for (int i = 0; i < day; i++) {
+			Date dateData = DateUtils.addDays(date, n + i);
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+			String trueDate = sdf.format(dateData);
+			System.out.println(trueDate);
+			// 定义url
+			String url = "http://flight-api.tuniu.com/open/flight/v0/flightList?callback=jQuery&withTransfer=true&passengers[0][count]=1&passengers[0][psgType]=ADT&voyType=ST&voys[0][orgCity]="
+					+ beginCityCode + "&voys[0][dstCity]=" + endCityCode + "&voys[0][deptDate]=" + trueDate;
+			// 添加到集合中
+			urlList.add(url);
+		}
+
+		return urlList;
+	}
+	/**
+	 * 
+	 * @Description 得到去哪儿所有的航班链接
+	 * @author 谢大磊
+	 * @date 2017年12月28日 下午2:38:22
+	 * @action getQunaerUrlList
+	 * @return List<String>
+	 */
+	public static List<String> getQunaerUrlList(String beginCity, String endCity, Integer n, Integer day) {
+		List<String> urlList = new LinkedList<>();
+		// 获得出发城市的code
+		String beginCityCode = cityCodeManager(beginCity);
+		// 获得目的城市的code
+		String endCityCode = cityCodeManager(endCity);
+		// 确定日期
+		Date date = new Date();
+		for (int i = 0; i < day; i++) {
+			Date dateData = DateUtils.addDays(date, n + i);
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+			String trueDate = sdf.format(dateData);
+			System.out.println(trueDate);
+			// 定义url
+			String url = "https://flight.qunar.com/site/oneway_list.htm?searchDepartureAirport="+ beginCityCode+"&searchArrivalAirport="+ endCityCode+"&searchDepartureTime="+ trueDate;
+			// 添加到集合中
+			urlList.add(url);
+		}
+
+		return urlList;
+	}
+	/**
+	 * 
+	 * @Description 得到携程机票的urlList
+	 * @author xdl
+	 * @date 2017年12月29日 上午9:09:01
+	 * @action getCtripUrlList
+	 * @return List<String>
+	 */
+	public static List<String> getCtripUrlList(String beginCity,String endCity,Integer n,Integer day){
+		List<String> urlList = new LinkedList<>();
+		// 获得出发城市的code
+		String beginCityCode = cityCodeManager(beginCity);
+		// 获得目的城市的code
+		String endCityCode = cityCodeManager(endCity);
+		// 确定日期
+		Date date = new Date();
+		for (int i = 0; i < day; i++) {
+			Date dateData = DateUtils.addDays(date, n + i);
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+			String trueDate = sdf.format(dateData);
+			System.out.println(trueDate);
+			// 定义url
+			String url = "http://flights.ctrip.com/domesticsearch/search/SearchFirstRouteFlights?DCity1="+beginCityCode+"&ACity1="+endCityCode+"&SearchType=S&DDate1="+trueDate;
+			// 添加到集合中
+			urlList.add(url);
+		}
+		
+		return urlList;
+	}
+	
+	/**
+	 * 
+	 * @Description 得到所有同程的机票的urlList
+	 * @author xdl
+	 * @date 2017年12月29日 下午2:08:05
+	 * @action getTongchengUrlList
+	 * @return List<String>
+	 */
+	public static List<String> getTongchengUrlList(String beginCity,String endCity,Integer n,Integer day){
+		List<String> urlList = new LinkedList<>();
+		// 获得出发城市的code
+		String beginCityCode = cityCodeManager(beginCity);
+		// 获得目的城市的code
+		String endCityCode = cityCodeManager(endCity);
+		// 确定日期
+		Date date = new Date();
+		for (int i = 0; i < day; i++) {
+			Date dateData = DateUtils.addDays(date, n + i);
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+			String trueDate = sdf.format(dateData);
+			System.out.println(trueDate);
+			// 定义url
+			String url = "http://m.ly.com/flightnew/json/firstflightlist.html?arrt="+trueDate+"&ac="+endCityCode+"&oc="+beginCityCode;
+			// 添加到集合中
+			urlList.add(url);
+		}
+
+		return urlList;
+	}
+	public void start() {
+		for(int i=0;i<=1;i++){
+			new Thread(new Runnable() {
+				
+				@Override
+				public void run() {
+					// TODO Auto-generated method stub
+					while (true) {
+						// 从redis队列中取链接信息
+						String url = jedis.pollStr(KEY_URL);
+						System.out.println(url);
+						if (StringUtils.isNotBlank(url)) {
+							Map<String, String> header = new HashMap<>();
+							if(url.startsWith("http://flights.ctrip.com/domesticsearch/search/SearchFirstRouteFlights")){
+								String beginCityCode =  url.split("=")[1].split("&")[0].toLowerCase();
+								String endCityCode = url.split("=")[2].split("&")[0].toLowerCase();
+								String trueDate = url.split("=")[4];
+								header.put("Referer", "http://flights.ctrip.com/booking/"+beginCityCode+"-"+endCityCode+"-day-1.html?ddate1="+trueDate);
+								header.put("Cookie", "_abtest_userid=20f1a4eb-c555-4a2e-bd3d-65ab89a87392; _bfa=1.1512701099711.4dnbww.1.1512694752376.1512721145940.4.6; _bfs=1.1; page_time=1512701101728%2C1512701101893%2C1512708270800%2C1512708270972%2C1512708293849%2C1512708294001%2C1512721147601%2C1512721147849; _RF1=114.94.39.223; _RSG=DR4diHtKp76u009mLto2PB; _RDG=280eb3e6a198592ce8263e2bc269c3ce1f; _RGUID=61f35374-6c9c-46cd-b642-cb7570240038; __zpspc=9.3.1512721148.1512721148.1%234%7C%7C%7C%7C%7C%23; _jzqco=%7C%7C%7C%7C1512701102847%7C1.736326260.1512701102819.1512708296542.1512721148814.1512708296542.1512721148814.undefined.0.0.4.4; _ga=GA1.2.304305798.1512701103; _gid=GA1.2.322811433.1512701103; MKT_Pagesource=PC; _bfi=p1%3D101027%26p2%3D101027%26v1%3D6%26v2%3D3;FD_SearchHistorty={\"type\":\"S\",\"data\":\"S%24%u4E0A%u6D77%28SHA%29%24SHA%242017-12-08%24%u4E09%u4E9A%28SYX%29%24SYX\"}");
+							}else if(url.startsWith("http://m.ly.com/flightnew/")){
+								header.put("Cookie", "_ga=GA1.2.807121860.1513902548; NewProvinceId=25; NCid=321; TicketSEInfo=RefId=4140683&SEFrom=baidu&SEKeyWords=%E5%90%8C%E7%A8%8B; CNSEInfo=RefId=4140683&tcbdkeyid=&SEFrom=baidu&SEKeyWords=%E5%90%8C%E7%A8%8B&RefUrl=http%3A%2F%2Fbzclk.baidu.com%2Fadrc.php%3Ft%3D06KL00c00fD6YKb0GI4u059xAsKnqbNp00000DekBNb00000VFq98L.THLPoQ5n0A3qmh7GuZR0T1Y4PH6suHmsuH0snjf3mhNB0ZRqfbf4PWR1PYPjwHn3njmLfRD1rDc1PDnsfWNaPWKDnDc0mHdL5iuVmv-b5HnsP1mkrjbdPW6hTZFEuA-b5HDv0ARqpZwYTjCEQLILIz4nyi4WUvYE5LF-ub-b5HfkPj0vrjn0mLFW5HRsnWn4%26tpl%3Dtpl_10085_15730_11224%26l%3D1502212430%26attach%3Dlocation%253D%2526linkName%253D%2525E6%2525A0%252587%2525E9%2525A2%252598%2526linkText%253D%2525E5%252590%25258C%2525E7%2525A8%25258B%2525E6%252597%252585%2525E6%2525B8%2525B8%2525E5%2525AE%252598%2525E7%2525BD%252591-%2525E8%2525AE%2525A2%2525E6%25259C%2525BA%2525E7%2525A5%2525A8%2525E3%252580%252581%2525E9%252585%252592%2525E5%2525BA%252597%2525E3%252580%252581%2525E4%2525BC%252591%2525E9%252597%2525B2%2526xp%253Did(%252522m28370f30%252522)%25252FDIV%25255B1%25255D%25252FDIV%25255B1%25255D%25252FDIV%25255B1%25255D%25252FDIV%25255B1%25255D%25252FH2%25255B1%25255D%25252FA%25255B1%25255D%2526linkType%253D%2526checksum%253D59%26ie%3Dutf-8%26f%3D8%26tn%3Dbaidu%26wd%3D%25E5%2590%258C%25E7%25A8%258B%26rqlang%3Dcn%26_sglink%3D1; qdid=39264|1|6928722|0a6c16; Hm_lvt_64941895c0a12a3bdeb5b07863a52466=1514161929,1514170731,1514170764,1514534484; Hm_lpvt_64941895c0a12a3bdeb5b07863a52466=1514534484; __tctma=144323752.1513849209518793.1513849209322.1514170729902.1514534483677.8; __tctmu=144323752.0.0; __tctmz=144323752.1514534483677.8.1.utmccn=(organic)|utmcmd=organic|utmEsl=utf-8|utmcsr=baidu|utmctr=%e5%90%8c%e7%a8%8b; longKey=1513849209518793; __tctrack=0; searchSteps=2; AIRPLANECITYNAME=%25E4%25B8%258A%25E6%25B5%25B7%2524%25E4%25B8%2589%25E4%25BA%259A%2524%25241%25242017-12-29%2524%25242017-12-29%25240%2524%2524; fSearchHis=%25E4%25B8%258A%25E6%25B5%25B7%2524%25E4%25B8%2589%25E4%25BA%259A%2524%25241%25242017-12-25%2524%25242017-12-25%25240%2524%2524%252C%25E4%25B8%258A%25E6%25B5%25B7%2524%25E4%25B8%2589%25E4%25BA%259A%2524%25241%25242017-12-23%2524%25242017-12-23%25240%2524%2524%252C%25E4%25B8%258A%25E6%25B5%25B7%2524%25E4%25B8%2589%25E4%25BA%259A%2524%25241%25242017-12-23%2524%2524%25240%2524%2524; Hm_lvt_c6a93e2a75a5b1ef9fb5d4553a2226e5=1513920947,1513927774,1514161944,1514534504; _gat=1; Hm_lvt_7cda147e17cf103b1fb19362796011e2=1513920951,1513927778,1514170770,1514534511; Hm_lpvt_7cda147e17cf103b1fb19362796011e2=1514534511; Hm_lpvt_c6a93e2a75a5b1ef9fb5d4553a2226e5=1514534511; 17uCNRefId=4140683; TdToken=2177322b250b41f09938258217dbfb8b; __tctmc=144323752.172388223; __tctmd=144323752.181627771; __tctmb=144323752.1833148608888586.1514534525622.1514534546381.5; td_sid=MTUxNDUzNDU0NiwzMzNkOThhNDkxYzAxZmUwM2Q0ZDE1MTAxM2Q5YzI1MGMxY2VmYjYzMTllY2ViZjIxMjFmNmYxMWY4ZmY3MTliLDNiOTY5ODZhYThmZDcxYWE0YThhNDg5M2VjNzY3ZWJjOTQ1ZTIzNDUwMDQwMDkwYzIwMmMyOTNhMWQyODc1NTY=; k_st=8.8.8.8|1514534546; route=048bee38aecfbe30c210a0370c390513; td_did=1SmyIZkg5fJUviW5V3p8hZBA2Eq0KIKZNLrAmLua1LrW1DIAGfhdQaYgTYJdm2yczk%2BZOmz6BbcO08pAojmIwKbx9YoPln0XMDesUEl1TVbjZ0IV9DkQ3SueoF8M172SoGxiF4neY3laeWBdri1JWFtv1mP9WC0aks53KZTHUSCvG8QNSE8EJouGrZEJ2euw9lvqmNmGiXOFVSX2CHD18w%3D%3D; t_q=1514534545820");
+								header.put("Referer",url);
+								header.put("X-Requested-With", "XMLHttpRequest");
+								header.put("Accept", "application/json");
+								header.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.84 Safari/537.36");
+							}
+							// 得到一个document
+							Flight flight = (Flight)download.download(url, header);
+							try {
+								// 线程睡眠
+								Thread.sleep((long) (Math.random() * 1000 + 2000));
+							} catch (InterruptedException e1) {
+
+								e1.printStackTrace();
+							}
+							String content = flight.getContent();
+							if (StringUtils.isBlank(content)) {
+								jedis.addStr(KEY_URL, url);
+								System.err.println("失败" + url);
+								continue;
+							}
+							try {
+								System.out.println(flight.getPageUrl());
+								flightParse.flightparse(flight);
+							} catch (Exception e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+								jedis.addStr(KEY_URL, url);
+								System.err.println("失败" + url);
+								continue;
+							}
+						} else {
+							System.out.println("没有链接了");
+							try {
+								Thread.sleep(20000);
+							} catch (InterruptedException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							}
+						}
+
+					}
+				}
+			}).start();
+		}
+
+	}
+
+	public static void main(String[] args) {
+		FlightStart start = new FlightStart();
+		start.setDownload(new FlightDownLoad());
+		start.setFlightParse(new FlightParse());
+		// //首先获取所有的分页链接
+		String[][] cityArr = { { "上海", "三亚" }, { "三亚", "上海" }, { "上海", "海口" }, { "海口", "上海" } };
+		List<String> urlList = new LinkedList<>();
+		// //驴妈妈所有分页链接的获取
+		 for(int i=0;i<cityArr.length;i++){
+		 urlList.addAll(getLvmamaUrlList(cityArr[i][0], cityArr[i][1], 0,
+		 30));
+		 }
+		// for (String string : urlList) {
+		// FlightStart.jedis.addStr(KEY_URL, string);
+		// }
+		// 途牛所有分页链接
+//		for (int i = 0; i < cityArr.length; i++) {
+//			urlList.addAll(getTuniuUrlList(cityArr[i][0], cityArr[i][1], 2, 3));
+//		}
+//		for (String string : urlList) {
+//			FlightStart.jedis.addStr(KEY_URL, string);
+//		}
+		//去哪儿所有分页链接
+		for (int i = 0; i < cityArr.length; i++) {
+			urlList.addAll(getQunaerUrlList(cityArr[i][0], cityArr[i][1], 0, 30));
+		}
+		for (String string : urlList) {
+			FlightStart.jedis.addStr(KEY_URL, string);
+		}
+		//同程所有分页链接
+//		for (int i = 0; i < cityArr.length; i++) {
+//			urlList.addAll(getTongchengUrlList(cityArr[i][0], cityArr[i][1], 0, 30));
+//		}
+//		for (String string : urlList) {
+//			FlightStart.jedis.addStr(KEY_URL, string);
+//		}
+		start.start();
+	}
+
+}

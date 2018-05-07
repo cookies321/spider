@@ -1,0 +1,41 @@
+package cn.jj.service.impl;
+
+import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
+
+import cn.jj.entity.Hotel;
+import cn.jj.service.IDownLoadService;
+import cn.jj.utils.PageDownLoadUtil;
+/**
+ * 
+ * @Description: 下载页面
+ * @author 赵乐
+ * @date 2017年11月30日 上午11:27:47
+ */
+public class HotelDownLoad implements IDownLoadService {
+	
+	@Override
+	public Serializable download(String url,Map<?, ?>... maps) {
+		Hotel hotel=new Hotel();
+		String content="";
+		//判断是否是途牛的网站，途牛的网站请求需要header头并且是post
+		if(url.contains("https://www.ly.com/hotel/api/search")){
+			String param=url.substring(url.indexOf("?")+1, url.length());
+			String postUrl=url.substring(0, url.indexOf("?"));
+			content = PageDownLoadUtil.post(postUrl, param, maps);
+		}else if(url.startsWith("https://touch.qunar.com/api/hotel/hotellist?city=")){
+			Map<String,String> map=new HashMap<>();
+			map.put("Cookie", "QN99=1466; QunarGlobal=192.168.31.105_-7621d730_160780ac6fe_35f8|1513846829981; QN205=auto_4e0d874a; QN277=auto_4e0d874a; csrfToken=7iUS8AHCeMqxWLKfhQnyXNXNPIkjfF3q; QN269=65756A41E62D11E7854DFA163E9BF76E; QN601=3e4200cbf53d2067f0b59c7033559a12; _i=RBTKSLOSykqVjvRw6QbOlmrU-6Ex; QN163=0; QN6=auto_4e0d874a; QN48=tc_3030fc788729ebe8_160784d7ba0_443b; Hm_lvt_75154a8409c0f82ecd97d538ff0ab3f3=1513846832; Hm_lpvt_75154a8409c0f82ecd97d538ff0ab3f3=1513846832; QN57=15138468412030.01549333860608404; QN58=1513903607914%7C1513904297179%7C3; QN70=20e9748fa1607be4a6b5; _vi=VczfD2bWAsXu7LxQ6O4ooUaI7TpZdgz4_Syctb72RW53Oz1MjKUb4CybJAsmPPW1cUTdPuQPhyvzTXPSERwUS5sttO0HKANT1mCSCKK9VIWmVTgREWlfhig3VfBilzkrma2uPOGR3Z17TNzW42ZIZOQ2O0GOjjLtaDYh7mNgkFlJ; __utma=183398822.361479269.1513907073.1513907073.1513907073.1; __utmc=183398822; __utmz=183398822.1513907073.1.1.utmcsr=travel.qunar.com|utmccn=(referral)|utmcmd=referral|utmcct=/p-sf299522-hainan; _jzqa=1.222191699786808220.1513907095.1513907095.1513907095.1; _jzqc=1; _jzqx=1.1513907095.1513907095.1.jzqsr=hotel%2Equnar%2Ecom|jzqct=/.-; _jzqckmp=1; QN73=3004-3005; QN66=3w; QN300=3w; _RSG=G7qAB1z4oe6NKzIfl05oV9; _RDG=280572a605bfee2bf5078ef4bcf0ac1b30; _RGUID=6a3213d0-4b2b-41d0-97f2-140be94bd517; QN235=2017-12-22; _RF1=124.78.157.31; Hm_lvt_45585c4dc07dfd48a91539497071518d=1513926907; QN25=a15c027d-04a2-4e9a-b450-fb91fa2dd61a-9f992f90; QN1=dXrgjVo8xp0VPneSFQizAg==; Hm_lpvt_45585c4dc07dfd48a91539497071518d=1513932446; QN267=79843818a755081a; page_time=1513907231173%2C1513907992464%2C1513908023045%2C1513908032652%2C1513908034476%2C1513910631650%2C1513912105970%2C1513925727102%2C1513925913954%2C1513925920608%2C1513925970518%2C1513925984004%2C1513925985906%2C1513925987637%2C1513925989227%2C1513926417022%2C1513926430807%2C1513926764441%2C1513926917217%2C1513926957140%2C1513932067678%2C1513932456887");
+			content = PageDownLoadUtil.httpClientGet(url, map);
+		}else{
+			content = PageDownLoadUtil.httpClientGet(url, maps);
+		}
+		hotel.setContent(content);
+		hotel.setUrl(url);
+		return hotel;
+	}
+
+	
+
+}

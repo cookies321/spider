@@ -1,0 +1,560 @@
+package cn.jj.service.impl;
+
+import org.apache.commons.lang.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.omg.CORBA.Object;
+
+import cn.jj.controller.StrokeStart;
+import cn.jj.entity.Stroke;
+import cn.jj.entity.data.Addressinfo;
+import cn.jj.entity.data.Sceinfo;
+import cn.jj.service.IStrokeParse;
+import cn.jj.utils.NumUtils;
+import net.sf.json.JSONObject;
+
+public class StrokeParse implements IStrokeParse {
+
+	@Override
+	public void scenicParse(Stroke scenic) {
+		// TODO Auto-generated method stub
+		String url = scenic.getUrl();
+		//判断url是驴妈妈网站的景点
+		if (url.startsWith("http://www.lvmama.com/lvyou")) {
+			//调用解析lvmama目的地景点方法
+			lvmamaParse(scenic);
+		}
+		//判断url是携程网站
+		if (url.startsWith("http://you.ctrip.com/")) {
+			//调用解析携程目的地景点方法
+			xiechengParse(scenic);
+		}
+		//判断url是途牛网站
+		if(url.startsWith("http://www.tuniu.com/")){
+			//调用解析途牛目的地景点方法
+			tuniuParse(scenic);
+		}
+		//url是同城景点网站
+		if(url.startsWith("https://www.ly.com/")){
+			tongchengParse(scenic);
+		}
+		//去哪儿景点网站
+		if(url.startsWith("http://travel.qunar.com/")){
+			qunarParse(scenic);
+		}
+		
+	}
+	/**
+	 * 
+	 * @Description 解析去哪网景点
+	 * @author 赵乐
+	 * @date 2017年12月26日 下午5:02:14
+	 * @action qunarParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	private void qunarParse(Stroke scenic) {
+		// TODO Auto-generated method stub
+		//获取document
+		String content = scenic.getContent();
+		String url=scenic.getUrl();
+		Document doc = Jsoup.parse(content);
+		//判断首页url，取城市的景点链接
+		if(!url.contains("jingdian")){
+			//判断上海和海南
+			if("hainan".equals(url.substring(url.lastIndexOf("-")+1, url.length()))){
+				Elements cityEle = doc.select("div#placebottomNav>dl.line.clrfix:nth-child(3)>dd>a");
+				if(!cityEle.isEmpty()){
+					for (Element element : cityEle) {
+						String sceinfoUrl = element.attr("href")+"-jingdian";
+						StrokeStart.jedis.addStr(StrokeStart.KEY_URL, sceinfoUrl);
+					}
+				}
+			}else{
+				String sceinfoUrl = url+"-jingdian";
+				StrokeStart.jedis.addStr(StrokeStart.KEY_URL, sceinfoUrl);
+			}
+			//根据城市景点链接，取分页链接
+		}else{
+			if(!url.contains("-1-")){
+				//获取页面分页的最大页码数
+				Elements aHrefNum = doc.select("div.b_paging>a");
+				Integer total = 0;
+				if(aHrefNum.isEmpty()){
+					total = 1;
+				}else{
+					String str = aHrefNum.get(aHrefNum.size() - 2).text();
+					total = Integer.valueOf(str);
+					for (int j = 1; j <= total; j++) {
+						//获取该城市所有请求页面的链接
+						String pageUrl = url+"-1-"+j;
+						System.out.println(pageUrl+"------");
+						StrokeStart.jedis.addStr(StrokeStart.KEY_URL, pageUrl);
+					}
+				}
+			}else{
+				//获取每个页面景点的URL链接，最多10个/页
+				Elements elements = doc.select("div.listbox>ul.list_item.clrfix>li.item>a.imglink");
+				//记录每页获取的URL数
+				if(!elements.isEmpty()){
+					for (Element element : elements) {
+						Stroke stroke=new Stroke();
+						String strokeUrl = element.attr("href");
+						stroke.setUrl(strokeUrl);
+						stroke.setPageUrl(url);
+						StrokeStart.jedis.add(StrokeStart.KEY_STROKE, stroke);
+					}
+				}
+			}
+			
+		}
+		
+	}
+	/**
+	 * 
+	 * @Description 解析lvmama景点
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:18:34
+	 * @action lvmamaParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void lvmamaParse(Stroke scenic) {
+		//获取document
+		Document document = Jsoup.parse(scenic.getContent());
+		//爬取景点分页链接
+		if (scenic.getUrl().startsWith("http://www.lvmama.com/lvyou/scenery/")) {
+			//获取总条数
+			Elements totalNumEle = document.select("span#total_num");
+			//获取dest_id和base_id,拼接分页pageUrl
+			Integer dest_id=NumUtils.getInteger(scenic.getUrl());
+			String htmlstr = document.select("script").html();
+			String base_idstr =htmlstr.substring(htmlstr.lastIndexOf("base_id"),htmlstr.indexOf("request_uri"));
+			Integer bsas_id = NumUtils.getInteger(base_idstr);
+			//遍历分页pageUrl
+			for (Element element : totalNumEle) {
+				Integer totalNum=Integer.parseInt(element.text());
+				Integer pageNum=totalNum%10==0?totalNum/10:(totalNum/10)+1;
+				for(int i=1;i<=pageNum;i++){
+					String href="http://www.lvmama.com/lvyou/ajax/getNewViewList?page_num="+i
+							+"&dest_id="+dest_id+"&base_id="+bsas_id;
+					StrokeStart.jedis.addStr(StrokeStart.KEY_URL, href);
+				}
+			}
+		}
+		//爬取景点详情链接
+		if(scenic.getUrl().startsWith("http://www.lvmama.com/lvyou/ajax/getNewViewList")){
+			//调用解析分页链接方法
+			resolvePageUrl(scenic);
+		}
+		
+	}
+	/**
+	 * 
+	 * @Description 解析驴妈妈景点分页链接
+	 * @author 赵乐
+	 * @date 2017年12月5日 上午10:18:38
+	 * @action resolvePageUrl
+	 * @param @param stroke
+	 * @param @return
+	 * @return List<Stroke>
+	 */
+	public void resolvePageUrl(Stroke stroke){
+		//获取二级分页url
+		String pageUrl = stroke.getUrl();
+		String content = stroke.getContent();
+		String dest_id=pageUrl.substring(pageUrl.indexOf("dest_id")+8,pageUrl.indexOf("&base_id="));
+		/**
+		 * 手动判断
+		 * 根据desti_id判断城市名称
+		 */
+		String parentUrl="";
+		String cityName="";
+		if("79".equals(dest_id)){
+			cityName="上海";
+			parentUrl="http://www.lvmama.com/lvyou/scenery/d-shanghai79.html";
+		}
+		if("267".equals(dest_id)){
+			cityName="海南";
+			parentUrl="http://www.lvmama.com/lvyou/scenery/d-hainan267.html";
+		}
+		//json格式的请求结果，不能直接解析
+		JSONObject jsonObject = null;
+		try {
+						
+			if(!content.startsWith("{")){
+				System.err.println("json格式下载失败，放回队列");
+				StrokeStart.jedis.addStr(StrokeStart.KEY_URL, pageUrl);
+				
+			}else{
+				jsonObject = JSONObject.fromObject(content);
+				String stringdata = jsonObject.getString("data");
+				//获取document
+				Document doc = Jsoup.parse(stringdata); 
+				Elements elements = doc.select("dl.ticket_price.line_price.com_dest_2>dt>a");
+				//遍历景点部分信息
+				for(Element element:elements){
+					Stroke strokeInfo=new Stroke();
+					String url=element.attr("href");
+					System.out.println(url+"----url链接");
+					strokeInfo.setParentUrl(parentUrl);
+					strokeInfo.setPageUrl(pageUrl);
+					strokeInfo.setUrl(url);
+					strokeInfo.setCityName(cityName);
+					//存入到redis缓存中
+					StrokeStart.jedis.add(StrokeStart.KEY_STROKE, strokeInfo);
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			StrokeStart.jedis.addStr(StrokeStart.KEY_URL, pageUrl);
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 解析携程景点
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:18:42
+	 * @action xiechengParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void xiechengParse(Stroke scenic) {
+		Document document = Jsoup.parse(scenic.getContent());
+		//爬取输入省份下的城市景点链接，如海南下面的三亚
+		if (scenic.getUrl().startsWith("http://you.ctrip.com/countrysightlist")) {
+			String urlstr=scenic.getUrl();
+			//判断是不是分页链接
+			if(!urlstr.contains("/p")){
+				//不是分页链接，即为首页链接，解析取区分页
+				String hrefstr=urlstr.substring(0,urlstr.lastIndexOf("."));
+				//城市页码总页数
+				Elements elements = document.select("div.ttd_pager.cf>div.pager_v1>span>b");
+				if(!elements.isEmpty()){
+					for (Element element : elements) {
+						String pageNumstr = element.text();
+						if(StringUtils.isNotBlank(pageNumstr)){
+							Integer pageNum=Integer.parseInt(pageNumstr);
+							for(int i=1;i<=pageNum;i++){
+								String href = hrefstr+"/p"+i+".html";
+								StrokeStart.jedis.addStr(StrokeStart.KEY_URL, href);
+								System.out.println("城市分页链接"+href);
+							}
+						}
+					}
+				}else{
+					System.out.println("解析分页链接标签为空，放回队列重新请求");
+					StrokeStart.jedis.addStr(StrokeStart.KEY_URL, scenic.getUrl());
+				}
+			}else{
+				//点击城市跳转链接
+				Elements elements2 = document.select("div.list_mod1>dl>dt>a");
+				if(!elements2.isEmpty()){
+					for (Element element : elements2) {
+						String href=element.attr("href");
+						if(StringUtils.isNotBlank(href)){
+							String url = "http://you.ctrip.com" + href.replace("place", "sight");
+							StrokeStart.jedis.addStr(StrokeStart.KEY_URL, url);
+							System.out.println("城市跳转链接"+url);
+						}
+					}
+				}
+				else{
+					System.out.println("解析景点详情标签为空，放回队里重新请求");
+					StrokeStart.jedis.addStr(StrokeStart.KEY_URL, scenic.getUrl());
+				}
+			}
+
+		}
+		//爬取景点详情链接
+		if (scenic.getUrl().startsWith("http://you.ctrip.com/sight/")) {
+			String scenicUrl=scenic.getUrl();
+			if(!scenicUrl.contains("s0-p")){
+				//获取景点的总页数
+				String hrefstr=scenicUrl.substring(0,scenicUrl.lastIndexOf("."));
+				Elements pageNumEle = document.select("div.ttd_pager.cf>div.pager_v1>span>b");
+				if(!pageNumEle.isEmpty()){
+					for (Element element : pageNumEle) {
+						String pageNumstr = element.text();
+						if(StringUtils.isNotBlank(pageNumstr)){
+							Integer pageNum=Integer.parseInt(pageNumstr);
+							for(int i=1;i<=pageNum;i++){
+								String href = hrefstr+"/s0-p"+i+".html";
+								StrokeStart.jedis.addStr(StrokeStart.KEY_URL, href);
+								System.out.println("景点分页链接"+href);
+							}
+						}
+					}
+				}else{
+					String replace = StringUtils.replace(scenicUrl, ".html", "/s0-p1.html");
+					StrokeStart.jedis.addStr(StrokeStart.KEY_URL, replace);
+				}
+			}else{
+				//获取景点详情链接
+				Elements select = document.select("div.list_mod2>div.rdetailbox>dl>dt>a");
+				if(!select.isEmpty()){
+					for (Element element : select) {
+						Stroke strokeInfo=new Stroke();
+						String str = element.attr("href");
+						if(StringUtils.isNotBlank(str)){
+							String href = "http://you.ctrip.com" + str;
+							strokeInfo.setPageUrl(scenicUrl);
+							strokeInfo.setUrl(href);
+							//存入到list缓存中
+							StrokeStart.jedis.add(StrokeStart.KEY_STROKE, strokeInfo);
+						}
+					}
+				}else{
+					System.out.println("获取分页链接标签失败，放回队列重新请求");
+					StrokeStart.jedis.addStr(StrokeStart.KEY_URL, scenicUrl);
+				}
+			}
+		}
+	}
+	
+	/**
+	 * @Description 携程临时测试
+	 * @author 徐仁杰
+	 * @date 2017年12月14日 上午11:32:57
+	 * @action xieChengParse2
+	 * @return void
+	 */
+	public void xieChengParse2(Stroke scenic) {
+		Document doc = Jsoup.parse(scenic.getContent());
+		Elements a_pic = doc.select("div.result>ul.jingdian-ul.cf>li.cf>a.pic");
+		System.out.println(StrokeStart.queue.getSize());
+		for (Element li : a_pic) {
+			String str = "http://you.ctrip.com" + li.attr("href");
+			StrokeStart.queue.addHighLevel(str);
+		}
+		System.out.println(StrokeStart.queue.getSize());
+		Elements a_leftArrow = doc.select("div.result>div.desNavigation.cf>p>span>a.left_arrow");
+		if (!a_leftArrow.isEmpty()) {
+			for (Element element : a_leftArrow) {
+				if (element.text().equals("下一页")) {
+					String url = "http://you.ctrip.com" + a_leftArrow.last().attr("href");
+					if (StringUtils.isNotBlank(a_leftArrow.last().attr("href"))) {
+						StrokeStart.jedis.addStr(StrokeStart.KEY_URL, url);
+						System.err.println("下一页跳转链接" + url);
+					}
+				}
+			}
+		} else {
+			StrokeStart.jedis.addStr(StrokeStart.KEY_URL, scenic.getUrl());
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 解析途牛景点
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:20:15
+	 * @action tuniuParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void tuniuParse(Stroke scenic){
+		String content = scenic.getContent();
+		Document doc = Jsoup.parse(content);
+		String pageUrl=scenic.getUrl();
+		//获取下一页的链接
+		Elements nextPageEle = doc.select("div.pagination>div.page-bottom>a");
+		for (Element element : nextPageEle) {
+			if("下一页".equals(element.text())){
+				String nextHref="http://www.tuniu.com"+element.attr("href");
+				//scenic.setUrlList(nextHref);
+				//放入消息队列
+				StrokeStart.jedis.addStr(StrokeStart.KEY_URL, nextHref);
+				System.out.println("景点分页链接"+nextHref);
+			}
+		}
+		/**
+		 * 获取本页面信息
+		 */
+		//获取四级地址表信息
+		
+		Elements selectAddress = doc.select("div.breadbar_v1.cf>ul.first_level>li>a");
+		int size = selectAddress.size();
+		String cityName ="";
+		String proviceName = "";
+		String countName ="";
+		if(size==5){
+			cityName = selectAddress.get(size-1).text().replace("景点", "");
+			proviceName = selectAddress.get(size-2).text();
+			countName = selectAddress.get(size-3).text();
+		}if(size==4){
+			cityName = selectAddress.get(size-1).text().replace("景点", "");
+			proviceName = selectAddress.get(size-1).text().replace("景点", "");
+			countName = selectAddress.get(size-2).text();
+		}
+		Addressinfo addressInfo=new Addressinfo();
+		addressInfo.setCity(cityName);
+		addressInfo.setProvince(proviceName);
+		addressInfo.setCountry(countName);
+		addressInfo.setType(1);
+		//获取景点详情的链接
+		Elements select = doc.select("div.allSpots>ul>li>a.pic");
+		for (Element element : select) {
+			Stroke strokeInfo=new Stroke();
+			String href = "http://www.tuniu.com"+element.attr("href");
+			System.out.println(href+"-----途牛景点链接");
+			strokeInfo.setUrl(href);
+			strokeInfo.setPageUrl(pageUrl);
+			//四级地址表
+			strokeInfo.setAddressinfo(addressInfo);
+			//存入到redis缓存中
+			StrokeStart.jedis.add(StrokeStart.KEY_STROKE, strokeInfo);
+			
+		}
+	}
+	/**
+	 * 
+	 * @Description 解析同城景点
+	 * @author 赵乐
+	 * @date 2017年12月21日 下午5:25:59
+	 * @action tongchengParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	private void tongchengParse(Stroke scenic) {
+		// TODO Auto-generated method stub
+		String url = scenic.getUrl();
+		String content = scenic.getContent();
+		if(url.startsWith("https://www.ly.com/go/countryProvince")){
+			Document document=Jsoup.parse(content);
+			//解析省份的城市景点url
+			Elements  elementsIndex= document.select("div.must_pro>ul.prolist.clearfix>li>a");
+			for(Element element:elementsIndex){
+				// https://www.ly.com/go/scenery/133.html
+				String cityUrlstr="https://www.ly.com"+element.attr("href");// /go/area/133.html
+				String cityUrl=cityUrlstr.replace("area", "scenery");
+				StrokeStart.jedis.addStr(StrokeStart.KEY_URL, cityUrl);
+			}
+		}
+		if(url.startsWith("https://www.ly.com/go/scenery")){
+			//解析城市景点的url
+			//cityUrl链接 例如：上海  https://www.ly.com/go/scenery/321.html
+			//获取页面隐藏的信息 例如：<input id="path" type="hidden" value="3106,1,25,321," />
+			Document document=Jsoup.parse(content);
+			Elements selectInput = document.select("input#path");
+			String pathHidden=selectInput.isEmpty()?"":selectInput.attr("value");
+			Integer cityId=NumUtils.getInteger(url);
+			String selectCityId="";
+			if(!"".equals(pathHidden)){
+				String str[]=pathHidden.split(",");
+				if(str.length==4){
+					selectCityId=str[3];
+				}
+			}
+			if(!StringUtils.isBlank(selectCityId)){
+				String firstHref="https://www.ly.com/go/RainbowClientAjax/GetAladdin?_dAjax=callback&requsetParms={cityId:"+cityId+",selectCityId:"+selectCityId+",fromSite:1,poiType:1,type2Id:999,pageIndex:1,pageSize:15}&serviceName=getpoiorderfilterchoice";
+				StrokeStart.jedis.addStr(StrokeStart.KEY_URL, firstHref);
+			}
+		}
+		//获取景点首页链接
+		if(url.startsWith("https://www.ly.com/go/RainbowClientAjax/GetAladdin?_dAjax=callback")){
+			if(content!=null && !"".equals(content)){
+				JSONObject jsonObj = JSONObject.fromObject(content);
+				JSONObject jsonResponse=jsonObj.getJSONObject("response");
+				JSONObject jsonBody =jsonResponse.getJSONObject("body");
+				String totalPage=jsonBody.get("totalPage").toString();
+				if(totalPage!=null && !"".equals(totalPage)){
+					Integer pageNum=Integer.parseInt(totalPage);
+					
+					for(int i=1;i<=pageNum;i++){
+						String pageHref=url.replace("pageIndex:1", "pageIndex:"+i).replace("_dAjax=callback&", "");
+						StrokeStart.jedis.addStr(StrokeStart.KEY_URL, pageHref);
+					}
+				}
+			}
+		}
+		//获取景点分页链接
+		if(url.startsWith("https://www.ly.com/go/RainbowClientAjax/GetAladdin?requsetParms")){
+			
+			//转换为json格式
+			JSONObject jsonpageIndex = JSONObject.fromObject(content);
+			JSONObject jsonResponse=jsonpageIndex.getJSONObject("response");
+			JSONObject jsonBody =jsonResponse.getJSONObject("body");
+			net.sf.json.JSONArray jsonArray = jsonBody.getJSONArray("dataList");
+			for(int j=0;j<jsonArray.size();j++){
+				//景点基础信息对象
+				Sceinfo sceInfo = new Sceinfo();
+				//四级地址表信息
+				Addressinfo addressinfo=new Addressinfo();
+				
+				//获取每条景点的url和部分详情
+				JSONObject jsonObject = jsonArray.getJSONObject(j);
+				String cityId=jsonObject.get("cityId").toString();
+				//poiId
+				String poiId=jsonObject.get("poiId").toString();
+				//城市名称
+				String cityName=jsonObject.get("cityName").toString();
+				//景点名称
+				String name=jsonObject.get("title").toString();
+				sceInfo.setName(name);
+				//景点星级
+				String starLevel=jsonObject.get("level").toString();
+				sceInfo.setStarlevel(starLevel);
+				//景点评分
+				String scorestr=jsonObject.get("score").toString();
+				String grade="";
+				if(!"".equals(scorestr)){
+					Double score=Double.parseDouble(scorestr);
+					grade=score*20+"";
+				}
+				sceInfo.setGrade(grade);
+				//景点参考价格
+				String price=jsonObject.get("price").toString();
+				sceInfo.setReferprice(price);
+				//景点地址
+				String address=jsonObject.get("address").toString();
+				sceInfo.setAddress(address);
+				//景点类型
+				String type=jsonObject.get("type2Name").toString();
+				sceInfo.setType(type);
+				
+				//景点经度
+				String longitude=jsonObject.get("lonBD").toString();
+				sceInfo.setLongitude(longitude);;
+				//景点纬度
+				String latitude=jsonObject.get("latBD").toString();
+				sceInfo.setLatitude(latitude);
+				
+				sceInfo.setDatasource("Tongcheng");
+				
+				//四级地址信息
+				//"亚洲,中国,海南,海口,",
+				String pathName=jsonObject.get("pathName").toString();
+				String str[]=pathName.split(",");
+				if(str.length>3){
+					String province=str[2];
+					String country=str[1];
+					addressinfo.setCountry(country);
+					addressinfo.setProvince(province);
+				}
+				
+				//存入地址表详细地址
+				addressinfo.setDetailaddress(address);
+				addressinfo.setCity(cityName);
+				addressinfo.setType(1);
+				
+				String urlScenic="";
+				if(!"".equals(cityId) && !"".equals(poiId)){
+					urlScenic="https://www.ly.com/go/scenery/"+cityId+"/"+poiId+".html";
+					System.out.println(urlScenic+"景点url");
+				}
+				scenic.setUrl(urlScenic);
+				scenic.setPageUrl(url);
+				scenic.setSceinfo(sceInfo);
+				scenic.setCityName(cityName);
+				scenic.setAddressinfo(addressinfo);
+				StrokeStart.jedis.add(StrokeStart.KEY_STROKE, scenic);
+			}
+		}
+	}
+	
+}

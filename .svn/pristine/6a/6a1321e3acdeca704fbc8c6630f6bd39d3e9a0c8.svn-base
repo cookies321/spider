@@ -1,0 +1,108 @@
+package cn.jj.controller;
+
+import org.apache.commons.lang3.StringUtils;
+
+import cn.jj.entity.Scenic;
+import cn.jj.service.IDownLoadService;
+import cn.jj.service.IScenicParse;
+import cn.jj.service.impl.QueueRepositoryService;
+import cn.jj.service.impl.ScenicDownLoad;
+import cn.jj.service.impl.ScenicParse;
+import cn.jj.utils.RedisUtil;
+import cn.jj.utils.ValidateUtil;
+
+public class ScenicStart {
+
+	private IDownLoadService downLoad;
+	
+	private IScenicParse ticketParse;
+	
+	//redis工具类
+	public static RedisUtil jedis=RedisUtil.getInstance();
+	
+	//redis中存放分页链接的key
+	public static final String KEY_URL = "queueUrl";
+	
+	//redis中存放分页链接的key
+	public static final String KEY_SCENIC = "scenic";
+		
+	
+	public IDownLoadService getDownLoad() {
+		return downLoad;
+	}
+
+	public void setDownLoad(IDownLoadService downLoad) {
+		this.downLoad = downLoad;
+	}
+
+	public IScenicParse getTicketParse() {
+		return ticketParse;
+	}
+
+	public void setTicketParse(IScenicParse ticketParse) {
+		this.ticketParse = ticketParse;
+	}
+
+	public ScenicStart() {
+		super();
+	}
+	
+	public void start(){
+		while(true){
+			//String url = queue.poll();
+			//从redis队列中取链接
+			String url=jedis.pollStr("queueUrl");
+			if(StringUtils.isNotBlank(url)){
+				Scenic ticket = (Scenic) this.downLoad.download(url);
+				String content = ticket.getContent();
+				if(ValidateUtil.valid(content)){
+					jedis.addStr(KEY_URL, url);
+					System.err.println("失败"+url);
+					continue;
+				}
+				try {
+					this.ticketParse.ticketParse(ticket);
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					jedis.addStr(KEY_URL, url);
+					System.err.println("失败"+url);
+					continue;
+				}
+			}else{
+				System.out.println("没有链接");
+				try {
+					Thread.sleep(2000);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	public static void main(String[] args) {
+		ScenicStart start = new ScenicStart();
+		start.setDownLoad(new ScenicDownLoad());
+		start.setTicketParse(new ScenicParse());
+		//加入驴妈妈门票主页连接
+		//添加到redis队列中
+		//ScenicStart.jedis.addStr("queueUrl", "http://s.lvmama.com/ticket/?keyword=上海&k=1#list");
+		//ScenicStart.jedis.addStr("queueUrl", "http://s.lvmama.com/ticket/K310000?keyword=海南&k=1#list");
+		//加入携程门票主页连接
+		//ScenicStart.jedis.addStr("queueUrl", "http://piao.ctrip.com/dest/u-_c9_cf_ba_a3/s-tickets/");
+		//ScenicStart.jedis.addStr("queueUrl", "http://piao.ctrip.com/dest/u-_ba_a3_c4_cf/s-tickets/");
+		//加入途牛门票主页连接
+		//ScenicStart.jedis.addStr("queueUrl", "http://www.tuniu.com/g2500/ticket-sh-0/list-h0-i-j0_0/");
+		//ScenicStart.jedis.addStr("queueUrl", "http://www.tuniu.com/g900/ticket-sh-0/");
+		
+		//加入同程门票主页链接
+		//ScenicStart.jedis.addStr("queueUrl", "https://www.ly.com/scenery/scenerysearchlist_0_0_上海_0_0_0_0_0_0_0.html");
+		//ScenicStart.jedis.addStr("queueUrl", "https://www.ly.com/scenery/scenerysearchlist_0_0_海南_0_0_0_0_0_0_0.html");
+		
+		//加入去哪儿门票主页链接
+		//ScenicStart.jedis.addStr("queueUrl", "http://piao.qunar.com/ticket/list.htm?keyword=上海&region=&from=mps_search_suggest");
+		//ScenicStart.jedis.addStr("queueUrl", "http://piao.qunar.com/ticket/list.htm?keyword=海南&region=&from=mps_search_suggest");
+		start.start();
+	}
+}

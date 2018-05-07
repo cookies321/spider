@@ -1,0 +1,35 @@
+package cn.jj.utils;
+
+import org.apache.commons.lang3.StringUtils;
+
+public class ValidateUtil {
+
+	public static boolean valid(String content) {
+		boolean isNull = StringUtils.isBlank(content);
+		boolean xiecheng01 =true;
+		boolean xiecheng02=true;
+		boolean xiecheng03=true;
+		boolean lvmama01=true;
+		if (!isNull) {
+			xiecheng01 = content.contains("请完成验证后继续访问");
+			xiecheng02 = content.contains("想不想来一次环球旅行");
+			xiecheng03 = content.contains("Bad Request to URI: /bad-request");
+			lvmama01=content.contains("400 Bad Request");
+			return false;
+		}
+		
+		if (!xiecheng01) {
+			return false;
+		}
+		if (!xiecheng02) {
+			return false;
+		}
+		if (!xiecheng03) {
+			return false;
+		}
+		if(!lvmama01){
+			return false;
+		}
+		return true;
+	}
+}

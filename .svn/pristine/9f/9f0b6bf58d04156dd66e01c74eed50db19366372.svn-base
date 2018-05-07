@@ -1,0 +1,631 @@
+package cn.jj.service.impl;
+
+import java.net.URLDecoder;
+import java.util.Date;
+
+import org.apache.commons.lang3.StringUtils;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import cn.jj.controller.RouteStart;
+import cn.jj.entity.Route;
+import cn.jj.entity.data.Routeinfo;
+import cn.jj.service.IRouteParse;
+import cn.jj.utils.NumUtils;
+
+
+public class RouteParse implements IRouteParse {
+
+	private static final String DATASOURCE = "Ctrip";// 数据来源，英文或全拼，首字符大写，如Ctrip、Tuniu等
+	private static final String CREATOR = "姚良良";// 创建者
+	private static final String CREATORID = "13783985208";// 创建者ID
+
+	@Override
+	public void routeParse(Route route) {
+		// TODO Auto-generated method stu
+		String url = route.getUrl();
+		//判断url为驴妈妈网站
+		if (url.startsWith("http://s.lvmama.com/route")) {
+			//调取解析lvmama行程方法
+			lvmamaParse(route);
+		}
+		//判断url为携程网站
+		if (url.startsWith("http://vacations.ctrip.com/tours")) {
+			//调取解析携程行程方法
+			xiechengParse(route);
+		}
+		//判断url为途牛网站
+		if (url.startsWith("http://s.tuniu.com/search_complex/")) {
+			//调取解析途牛行程方法
+			tuniuParse(route);
+		}
+		//url是同城网站
+		if(url.startsWith("https://gny.ly.com/")){
+			tongchengParse(route);
+		}
+		//url 是去哪网
+		if(url.startsWith("https://dujia.qunar.com")){
+			qunaerParse(route);
+		}
+		//url是飞猪网
+		if(url.startsWith("https://s.fliggy.com/")){
+			feizhuParse(route);
+		}
+	}
+	/**
+	 * 
+	 * @Description 解析飞猪行程信息
+	 * @author 赵乐
+	 * @date 2018年1月25日 下午2:19:00
+	 * @action feizhuParse
+	 * @param @param route
+	 * @return void
+	 */
+	private void feizhuParse(Route route) {
+		// TODO Auto-generated method stub
+		String url = route.getUrl();
+		String pageHtml = route.getContent();
+		JSONObject jsonObject = new JSONObject(pageHtml);
+		
+		//判断是否是首页url和含有页码的分页链接
+		if(!url.contains("&jumpTo=")){
+			//首页url
+			Integer pageNum=null;
+			try {
+				JSONObject jsonObject2 = jsonObject.getJSONObject("page");
+				pageNum = jsonObject2.getInt("totalPage");
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+				System.out.println("放回队列");
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, url);
+			}
+			if(pageNum!=null){
+				//126页之后的数据获取不到
+				pageNum=pageNum>126?126:pageNum;
+				for (int i = 1; i<=pageNum; i++) {
+					String parentUrl=url+"&jumpTo="+i;
+					System.out.println("分页url"+parentUrl);
+					RouteStart.jedis.addStr(RouteStart.KEY_URL, parentUrl);
+				}
+			}
+		}else{
+			//分页url,解析行程种子链接信息
+			JSONArray jsonArray=null;
+			try {
+				jsonArray = jsonObject.getJSONArray("itemList");
+			} catch (JSONException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+				
+				System.out.println("放回队列");
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, url);
+			}
+			if(jsonArray!=null){
+				
+				for (int i=0;i<jsonArray.length();i++) {
+					
+					Route route2 = new Route();
+					
+					Routeinfo routeinfo = new Routeinfo();
+					
+					JSONObject jsonObject2=null;
+					try {
+						jsonObject2 = jsonArray.getJSONObject(i);
+					} catch (JSONException e1) {
+						// TODO Auto-generated catch block
+						e1.printStackTrace();
+						System.out.println("放回队列");
+						RouteStart.jedis.addStr(RouteStart.KEY_URL, url);
+						continue;
+					}
+					if(jsonObject2!=null){
+						//行程名称
+						String name = jsonObject2.getString("title");
+						//行程种子链接
+						String href =jsonObject2.getString("link");
+						
+						href=href.replace("//items.fliggy.com", "https://traveldetail.fliggy.com");
+						
+						System.out.println("feizhu种子链接"+href);
+						//供应商名称
+						String supplierName = jsonObject2.getString("storeName");
+						//起价
+						String price = jsonObject2.getString("discountPrice");
+						//评论人数
+						Integer comments = jsonObject2.getInt("comments");
+						
+						//行程编号
+						String itemno=href.substring(href.indexOf("id=")+3, href.indexOf("&scm="));
+						//目的地
+						String destination = href.substring(href.indexOf("&mq="),href.length());
+						
+						route2.setParentUrl(url);
+						route2.setUrl(href);
+						
+						routeinfo.setUrlid(url);
+						routeinfo.setName(name);
+						routeinfo.setPrice(price);
+						routeinfo.setItemno(itemno);
+						routeinfo.setSuppliername(supplierName);
+						routeinfo.setGradenum(comments+"");
+						routeinfo.setDestination(destination);
+					}
+					
+					//行程类型
+					JSONObject jsonObject3=null;
+					try {
+						jsonObject3 = jsonObject2.getJSONObject("labelInfo");
+						
+					} catch (JSONException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					if(jsonObject3!=null){
+						String labelContent= jsonObject3.getString("labelContent");
+						routeinfo.setTeamtype(labelContent);
+					}
+					
+					route2.setRouteInfo(routeinfo);
+					
+					RouteStart.jedis.add(RouteStart.KEY_ROUTE, route2);
+				}
+				
+			}
+			
+		}
+	}
+	/**
+	 * 
+	 * @Description 解析去哪行程信息
+	 * @author 赵乐
+	 * @date 2017年12月27日 下午2:47:14
+	 * @action qunaerParse
+	 * @param @param route
+	 * @return void
+	 */
+	private void qunaerParse(Route route) {
+		// TODO Auto-generated method stub
+		String url = route.getUrl();
+		String pageHtml = route.getContent();
+		//判断是否是首页链接
+		if(url.contains("&userId")){
+			JSONObject limitJSON=null;
+			try {
+				JSONObject routeJSON = new JSONObject(pageHtml);
+				String dataStr = routeJSON.get("data").toString();
+				JSONObject dataJSON = new JSONObject(dataStr);
+				String limit = dataJSON.get("limit").toString();
+
+				limitJSON = new JSONObject(limit);
+			} catch (JSONException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			if(limitJSON!=null){
+				Integer routeCount = Integer.valueOf(limitJSON.get("routeCount").toString());
+				Integer page = routeCount%60 == 0?routeCount/60:routeCount/60 + 1;
+				//取分页链接
+				System.out.println("放入分页url");
+				for (int i = 0; i <=page; i++) {
+					String parentUrl=url.replace("lm=0%2C60", "lm="+i*60+"%2C60").replace("&userId=O5cv5lol8oii3YQOkCSjAg%3D%3D", "");
+					RouteStart.jedis.addStr(RouteStart.KEY_URL, parentUrl);
+				}
+			}
+			//取到含有分页链接的url
+		}else{
+			String destination=url.substring(url.indexOf("&q=")+3, url.indexOf("&m="));
+			try {
+				JSONArray resultsArr = null;
+				try {
+					JSONObject routeObject = new JSONObject(pageHtml);
+					String data = routeObject.get("data").toString();
+					JSONObject dataJS = new JSONObject(data);
+					String list = dataJS.get("list").toString();
+					JSONObject listJS = new JSONObject(list);
+					String results = listJS.get("results").toString();
+					resultsArr = new JSONArray(results);
+				} catch (Exception e1) {
+
+				}
+				for (int j = 0; j < resultsArr.length(); j++) {
+					Route route2 = new Route();
+
+					JSONObject routeMsg = new JSONObject(resultsArr.get(j).toString());
+
+					String name = routeMsg.get("search_title").toString();
+					if(StringUtils.isBlank(name)){
+						continue;
+					}
+					//创建HolyrobotRouteinfoWithBLOBs对象并设置相关属性
+					Routeinfo routeInfo = new Routeinfo();
+					routeInfo.setDatasource("Qunaer");
+					routeInfo.setCreator("姚良良");
+					routeInfo.setCreatorid("13783985208");
+					routeInfo.setDestination(destination);
+					routeInfo.setCreatedate(new Date());
+					routeInfo.setName(name);
+					//行程价格
+					if(!routeMsg.isNull("price")){
+						String price = routeMsg.get("price").toString();
+						routeInfo.setPrice(price);
+					}
+					String itemNo="";
+					//产品编号
+					if(!routeMsg.isNull("tuanTtsId")){
+						itemNo = routeMsg.get("tuanTtsId").toString();
+						routeInfo.setItemno(itemNo);
+					}
+					//此链接为app端的url，网页端的url会重定向
+					String routeUrl = "http://touch.dujia.qunar.com/item?date=&id="+itemNo;
+					System.out.println(routeUrl+"行程url");
+					route2.setUrl(routeUrl);
+					route2.setPageUrl(url);
+
+					//供应商
+					if(!routeMsg.isNull("summary")){
+						String summary = routeMsg.get("summary").toString();
+						JSONObject summaryJSON = new JSONObject(summary);
+						String supplier = summaryJSON.get("supplier").toString();
+						JSONObject supplierJSON = new JSONObject(supplier);
+						String supplierName = supplierJSON.get("name").toString();
+						routeInfo.setSuppliername(supplierName);
+					}
+					//出发地
+					String departure = "";
+					if(!routeMsg.isNull("dep")){
+						departure = routeMsg.get("dep").toString();
+						routeInfo.setDeparture(departure);
+					}
+					//行程类型
+					String teamType = routeMsg.get("extendFunction").toString();
+					routeInfo.setTeamtype(teamType);
+					//评分个数
+					if(!routeMsg.isNull("reviews")){
+						String gradeNum = routeMsg.get("reviews").toString();
+						routeInfo.setGradenum(gradeNum);
+					}
+					//出游人数
+					if(!routeMsg.isNull("soldCount")){
+						String beenNum = routeMsg.get("soldCount").toString();
+						routeInfo.setBeennum(beenNum);
+					}
+					//评分
+					if(!routeMsg.isNull("productScore")){
+						String grade = routeMsg.get("productScore").toString();
+						if(grade.length()>3){
+							routeInfo.setGrade(grade.substring(0,3));
+						}else{
+							routeInfo.setGrade(grade);
+						}								
+					}
+					route2.setRouteInfo(routeInfo);
+					RouteStart.jedis.add(RouteStart.KEY_ROUTE, route2);
+				}
+			} catch (Exception e) {
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, url);
+			}
+		}
+
+	}
+	/**
+	 * 
+	 * @Description 解析同城行程
+	 * @author 赵乐
+	 * @date 2017年12月25日 下午2:17:13
+	 * @action tongchengParse
+	 * @param @param route
+	 * @return void
+	 */
+	private void tongchengParse(Route route) {
+		// TODO Auto-generated method stub
+		//解析页面信息
+		String url = route.getUrl();
+		Document document = Jsoup.parse(route.getContent());
+		if(!url.contains("&start")){
+			//获得总条数标签
+			Elements totalCountEle = document.select("input#TotalCount");
+			//获得每页的显示条数
+			Elements pageSizeEle = document.select("input#PageSize");
+			//计算出总页数
+			String totalCountStr = totalCountEle.val();
+			String pageSizeStr = pageSizeEle.val();
+			Integer totalCount = totalCountStr != null && !"".equals(totalCountStr)?Integer.valueOf(totalCountStr):0;
+			Integer pageCount = pageSizeStr != null && !"".equals(pageSizeStr)?Integer.valueOf(pageSizeStr):20;
+			Integer page = totalCount%pageCount == 0?totalCount/pageCount:totalCount/pageCount+1;
+			//将页码请求URL放入redis
+			for (int i = 1; i <= page; i++) {
+				String pageUrl = url+"&start="+i;
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, pageUrl);
+			}
+		}else{
+			try {
+
+				Elements aHrefEle = document.select("ul#line-lsit>li");
+				String destination=url.substring(url.indexOf("&dest=")+6,url.indexOf("&start"));
+				for (Element element : aHrefEle) {
+					Route route2 =new Route();
+					//获取行程URL
+					Elements urlEle = element.select("a.route-link");							
+					String routeUrl = "https://gny.ly.com"+urlEle.attr("href");
+
+					route2.setPageUrl(url);
+					route2.setUrl(routeUrl);
+					Routeinfo routeInfo=new Routeinfo();
+					routeInfo.setDatasource("Tongcheng");
+					routeInfo.setCreator("姚良良");
+					routeInfo.setCreatorid("13783985208");
+					routeInfo.setDestination(destination);
+					routeInfo.setCreatedate(new Date());
+					//获取行程名字
+					Elements nameEle = element.select("a.route-link>div.pro-content>h3.main-title>em");
+					if(nameEle.isEmpty()){
+						nameEle = element.select("div.pro-content>a.route-link>h3.main-title>em");
+					}
+					if(nameEle.isEmpty()){
+						continue;
+					}else{
+						String name = nameEle.first().text();
+						System.out.println("行程的名字为  :"+name);						
+						routeInfo.setName(name);
+
+						//获取行程类型
+						Elements teamTypeEle = element.select("a.route-link>div.pro-img>span:nth-child(2)");
+						if(!teamTypeEle.isEmpty()){
+							String teamType = teamTypeEle.text();
+							routeInfo.setTeamtype(teamType);
+						}
+
+						//获取行程价钱
+						Elements priceEle = element.select("div.details>div.dr>p>span>strong");
+						if(!priceEle.isEmpty()){
+							String price = priceEle.first().text();
+							System.out.println("行程的价钱为:"+price);
+							routeInfo.setPrice(price);
+						}
+
+						//获取评分
+						Elements gradeEle = element.select("div.dm.trip-comment.comment-sat>div.comment-satNum>p.satNum");
+						if(!gradeEle.isEmpty()){
+							String grade = gradeEle.text();
+							routeInfo.setGrade(grade);
+						}	
+
+						//获取评论个数
+						Elements gradeNumEle = element.select("div.dm.trip-comment.comment-sat>div.trav-person>p.person-comment");
+						if(!gradeNumEle.isEmpty()){
+							String gradeNum = (NumUtils.getInteger(gradeNumEle.text())).toString();
+							routeInfo.setGradenum(gradeNum);
+							System.out.println("点评人数: "+gradeNum);
+						}
+
+						//获取出游人数
+						Elements beenNumEle = element.select("div.dm.trip-comment.comment-sat>div.trav-person>p.person-num");
+						if(!beenNumEle.isEmpty()){
+							String beenNum = (NumUtils.getInteger(beenNumEle.text())).toString();
+							routeInfo.setBeennum(beenNum);
+							System.out.println("出游人数: "+beenNum);
+						}
+					}
+					route2.setRouteInfo(routeInfo);
+					//结果放入list缓存中
+					RouteStart.jedis.add(RouteStart.KEY_ROUTE, route2);
+				}
+			} catch (Exception e) {
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, url);
+			}
+		}
+	}
+	/**
+	 * 
+	 * @Description 解析lvmama行程
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:18:34
+	 * @action lvmamaParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void lvmamaParse(Route route) {
+		//解析页面信息
+		Document document = Jsoup.parse(route.getContent());
+		//爬取分页链接
+		if(route.getUrl().endsWith("&k=0#list")){
+			//获取城市目的地
+			String href=route.getUrl();
+			String cityNeme=href.substring(href.indexOf("keyword=")+8,href.indexOf("&k"));
+			//获取分页的总页数
+			Elements aHrefNum = document.select("div.pagebox>a");
+			String str = aHrefNum.get(aHrefNum.size() - 2).text();
+			Integer num = Integer.valueOf(str);
+			for (int i = 1; i <= num; i++) {
+				//获取所有请求页面的链接
+				String pagehref="http://s.lvmama.com/route/H8P" + i + "?keyword="+cityNeme+"&tabType=route";
+				//把分页链接放回redis任务队列
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, pagehref);
+			}
+		}
+		//爬取行程详情信息
+		if(route.getUrl().endsWith("&tabType=route")){
+			//Elements elements = document.select("h3.product-title>a");
+			Elements elements = document.select("div.product-left>a");
+			//二级分页url
+			String pageUrl=route.getUrl();
+			//一级主页url
+			String parentUrl=pageUrl.substring(0,pageUrl.indexOf("P"))+
+					pageUrl.substring(pageUrl.indexOf("?"),pageUrl.indexOf("&"))+"&k=0#list";
+			//获取城市名称中文
+			String cityName=pageUrl.substring(pageUrl.indexOf("keyword=")+8,pageUrl.indexOf("&tabType"));
+			System.out.println(cityName);
+			//遍历获取行程的部分基础信息
+			for (Element element : elements) {
+				Route routeInfo =new Route();
+				String routeUrl=element.attr("href");
+				System.out.println(routeUrl+"------驴妈妈行程url");
+				routeInfo.setPageUrl(pageUrl);
+				routeInfo.setParentUrl(parentUrl);
+				routeInfo.setUrl(routeUrl);
+				routeInfo.setCityName(cityName);
+				//结果放入list缓存中
+				RouteStart.jedis.add(RouteStart.KEY_ROUTE, routeInfo);
+			}
+		}
+
+	}
+	/**
+	 * 
+	 * @Description 解析携程行程
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:18:42
+	 * @action xiechengParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void xiechengParse(Route route) {
+		Document document = Jsoup.parse(route.getContent());
+		//获取二级分页url
+		String pageUrl=route.getUrl();
+
+		if(!route.getUrl().contains("/p")){
+			//取页码总也数码数
+			Elements elements = document.select("div#_pg>a");
+			if(!elements.isEmpty()&&elements.size()>1){
+				Element elementStr = elements.get(elements.size()-2);
+				Integer pageNum=Integer.parseInt(elementStr.text());
+				for (int i=1;i<=pageNum;i++) {
+					String pageHref=pageUrl+"/p"+i;
+					//把分页链接放回redis任务队列
+					RouteStart.jedis.addStr(RouteStart.KEY_URL, pageHref);
+				}
+			}else{
+				//如果为空,把链接放回到队列中再次请求
+				System.err.println("解析分页链接标签为空，放回到队列中再次请求"+pageUrl);
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, pageUrl);
+			}
+		}else{
+			//分页链接
+			Elements elements = document.select("div#_prd>div.main_mod.product_box.flag_product");
+			if(!elements.isEmpty()){
+				//循环取出每个模块中的相关数据
+				for (Element element : elements) {
+					//存入redis对象
+					Route routeParam=new Route();
+					//型号基础对象
+					Routeinfo routeInfo=new Routeinfo();
+					try {
+						//获取行程URL链接节点
+						Elements routeUrl = element.select("div.product_main>h2.product_title>a");
+						String href = "";
+						String name = "";
+						if(!routeUrl.isEmpty()){
+							href = "http:"+routeUrl.attr("href");
+							name = routeUrl.text();
+							System.out.println("名称为:"+name+",链接为: "+href);							
+						}else{
+							System.out.println("名字获取失败!");
+							continue;
+						}
+						routeParam.setUrl(href);
+						routeParam.setPageUrl(pageUrl);
+
+						routeInfo.setDatasource(DATASOURCE);
+						routeInfo.setCreator(CREATOR);
+						routeInfo.setCreatorid(CREATORID);
+						routeInfo.setCreatedate(new Date());
+						//获取行程的名字
+						routeInfo.setName(name);
+						//获取行程编号
+						String productid=href.substring(href.indexOf("/p")+2, href.lastIndexOf("s"));
+						String salesCity=href.substring(href.lastIndexOf("s")+1,href.lastIndexOf("."));
+
+						Elements textareaEle = element.select("textarea");
+						String textarea = textareaEle.text();
+						JSONObject textareaJSON = new JSONObject(textarea);
+						String departureCity = textareaJSON.get("DepartureId").toString();	//出发地城市ID
+
+						String destination=href.substring(href.indexOf("kwd=")+4,href.length());
+						//获取行程	，拼接行程价格的URL
+						String routepriceURL = "http://vacations.ctrip.com/tour-mainsite-vacations/api/product/Calendar?PRO="+productid+"&DepartureCity="+departureCity+"&SaleCity="+salesCity;
+						destination=URLDecoder.decode(destination, "UTF-8");
+						routeInfo.setDestination(destination);
+						routeParam.setRoutepriceURL(routepriceURL);
+
+						//获取行程类型(跟团游、自由行或者其他)
+						Elements teamTypeEle = element.select("div.product_pic>em");
+						if(!teamTypeEle.isEmpty()){
+							String teamType = teamTypeEle.first().text();
+							routeInfo.setTeamtype(teamType);
+							System.out.println("旅行类型为:"+teamType);
+						}
+						//获取供应商
+						Elements supplierNameEle = element.select("div.basefix>div.product_l>p.product_retail");
+						if(!supplierNameEle.isEmpty()){
+							String supplierNameStr = supplierNameEle.text();
+							String supplierName = supplierNameStr.substring(4);
+							routeInfo.setSuppliername(supplierName);
+							System.out.println("供应商为: "+supplierName);
+						}
+						routeParam.setRouteInfo(routeInfo);
+						//结果放入list缓存中
+						RouteStart.jedis.add(RouteStart.KEY_ROUTE, routeParam);
+					} catch (Exception e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}			
+				}								
+			}else{
+				System.err.println("解析详情信息标签为空，放回到队列中再次请求"+pageUrl);
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, pageUrl);
+			}
+		}
+	}
+	/**
+	 * 
+	 * @Description 解析途牛行程
+	 * @author 赵乐
+	 * @date 2017年12月1日 上午9:20:15
+	 * @action tuniuParse
+	 * @param @param scenic
+	 * @return void
+	 */
+	public void tuniuParse(Route route){
+		String url = route.getUrl();
+
+		Document document = Jsoup.parse(route.getContent());
+		if(route.getUrl().startsWith("http://s.tuniu.com/search_complex/whole-sh-0-")){
+			//获取下一页链接
+			Elements elements = document.select("div.page-bottom>a.page-next");
+			if(!elements.isEmpty()){
+				for (Element element : elements) {
+					String pageHref=element.attr("href");
+					//把分页链接放回redis任务队列
+					RouteStart.jedis.addStr(RouteStart.KEY_URL, pageHref);
+				}
+			}else{
+				//如果为空,把链接放回到队列中再次请求
+				System.err.println("解析分页链接标签为空，放回到队列中再次请求"+route.getUrl());
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, route.getUrl());
+			}
+			//获取行程详情
+			Elements elements2 = document.select("ul.thebox.clearfix>li>div.theinfo>a.clearfix");
+			if(!elements2.isEmpty()){
+				for (Element element : elements2) {
+					Route routeInfo=new Route();
+					String href=element.attr("href");
+					System.out.println(href+"-----途牛行程url");
+					routeInfo.setUrl(href);
+					routeInfo.setParentUrl(route.getUrl());
+					RouteStart.jedis.add(RouteStart.KEY_ROUTE, routeInfo);
+				}
+			}else{
+				System.err.println("解析详情信息标签为空，放回队里中再次请求");
+				RouteStart.jedis.addStr(RouteStart.KEY_URL, route.getUrl());
+			}
+		}
+	}
+
+}
